@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>参加者向けページ</title>
+<style>
+:root { --bg:#F2EFE9; --ink:#17171F; --muted:#666470; --line:#DDD8CE; --blue:#3438E8; --red:#DC4110; color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--ink);
+  font-family:"Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic","Meiryo",sans-serif; padding:24px 16px; line-height:1.7; }
+form { width:100%; max-width:360px; background:#fff; border:2px solid var(--blue); border-top-width:7px; border-radius:14px; padding:20px; display:grid; gap:14px; }
+h1 { margin:0; font-size:18px; }
+p { margin:0; font-size:14px; color:var(--muted); }
+input[type=password] { font:inherit; font-size:16px; width:100%; padding:10px 12px; border:2px solid var(--line); border-radius:10px; background:var(--bg); color:var(--ink); }
+label.r { display:flex; gap:8px; align-items:center; font-size:14px; }
+label.r input { width:18px; height:18px; accent-color:var(--red); }
+button { font:inherit; font-weight:700; background:var(--red); color:#fff; border:0; border-radius:99px; padding:12px; cursor:pointer; }
+button:disabled { opacity:.6; }
+.err { color:var(--red); font-weight:700; font-size:14px; min-height:1.4em; }
+:focus-visible { outline:3px solid var(--blue); outline-offset:2px; }
+</style>
+</head>
+<body>
+<form id="f" hidden>
+  <h1>参加者向けページです</h1>
+  <p>全体グループLINEでお知らせしたパスワードを入れてください。</p>
+  <input type="password" id="pw" autocomplete="current-password" aria-label="パスワード" required>
+  <label class="r"><input type="checkbox" id="keep" checked>この端末では次から入力しない</label>
+  <button id="go">開く</button>
+  <div class="err" id="err" role="status" aria-live="polite"></div>
+</form>
+<noscript>このページを見るには、JavaScriptを有効にしてください。</noscript>
+<script>
+(function () {
+  var P = __PAYLOAD__;
+  var KEY = "fullpera-guide-key";
+  var enc = new TextEncoder();
+  function b64(s) { return Uint8Array.from(atob(s), function (c) { return c.charCodeAt(0); }); }
+  function hex(s) { return new Uint8Array(s.match(/../g).map(function (h) { return parseInt(h, 16); })); }
+  function decrypt(raw) {
+    return crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["decrypt"])
+      .then(function (k) { return crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(P.i) }, k, b64(P.c)); });
+  }
+  function show(buf) {
+    var html = new TextDecoder().decode(buf);
+    document.open(); document.write(html); document.close();
+  }
+  function unlock(raw) { return decrypt(raw).then(show); }
+  function derive(pw) {
+    return crypto.subtle.importKey("raw", enc.encode(pw), "PBKDF2", false, ["deriveBits"])
+      .then(function (k) { return crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: hex(P.s), iterations: P.n }, k, 256); });
+  }
+  var f = document.getElementById("f"), err = document.getElementById("err"), go = document.getElementById("go");
+  function showForm() { f.hidden = false; document.getElementById("pw").focus(); }
+  if (!window.crypto || !crypto.subtle) { f.hidden = false; err.textContent = "このブラウザでは開けません。SafariかChromeで開いてください。"; go.disabled = true; return; }
+  var saved = null;
+  try { saved = localStorage.getItem(KEY); } catch (e) {}
+  if (saved) {
+    unlock(b64(saved)).catch(function () { try { localStorage.removeItem(KEY); } catch (e) {} showForm(); });
+  } else { showForm(); }
+  f.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var pw = document.getElementById("pw").value.trim();
+    if (!pw) { err.textContent = "パスワードを入れてください。"; return; }
+    go.disabled = true; err.textContent = "確認しています…";
+    var keep = document.getElementById("keep").checked;
+    derive(pw).then(function (bits) {
+      var raw = new Uint8Array(bits);
+      return decrypt(raw).then(function (buf) {
+        if (keep) { try { localStorage.setItem(KEY, btoa(String.fromCharCode.apply(null, raw))); } catch (e) {} }
+        show(buf);
+      });
+    }).catch(function () {
+      go.disabled = false; err.textContent = "パスワードが違います。";
+    });
+  });
+})();
+</script>
+</body>
+</html>
